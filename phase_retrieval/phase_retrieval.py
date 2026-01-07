@@ -66,7 +66,7 @@ s = data.s - bckgnd.s * 1.01
 s = np.where(s < 0, 0, s)
 
 # 1 um pump leak through
-s[:, 1500:] = 0
+# s[:, 1500:] = 0
 
 # center frog trace in time
 marginal_t = np.sum(s, axis=1)
@@ -235,6 +235,7 @@ for n, idx_subset in enumerate(tqdm(idx_subset_list)):
                             v_grid_new[-1] * 1e-12,
                         ),
                         aspect="auto",
+                        origin="lower",
                     )
                     img_2 = ax[0, 1].imshow(
                         s_v_new.T / s_v_new.max(),
@@ -245,6 +246,7 @@ for n, idx_subset in enumerate(tqdm(idx_subset_list)):
                             v_grid_new[-1] * 1e-12,
                         ),
                         aspect="auto",
+                        origin="lower",
                     )
 
                     (l_1,) = ax[1, 0].plot(t_grid_new * 1e15, p_t / p_t.max())
