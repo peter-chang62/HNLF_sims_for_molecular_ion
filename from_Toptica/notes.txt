@@ -1,0 +1,1 @@
+For Temporal: First column is sqrt(intensity), second is phase, third is time.
