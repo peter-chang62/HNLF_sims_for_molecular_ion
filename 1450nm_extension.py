@@ -44,6 +44,25 @@ km = 1e3
 THz = 1e12
 W = 1.0
 
+
+# %% ----- pynlo pulse --------------------------------------------------------
+f_r = 200e6  # repetition rate
+v_min = c / 2e-6  # minimum frequency of grid
+v_max = c / 1e-6  # maximum frequency of grid
+v0 = c / (1550 * nm)  # center frequency (carrier)
+min_time_window = 10e-12  # 10 pstime window
+input_power = 1.7  # Watts
+
+pulse = pynlo.light.Pulse.Sech(
+    n=256,  # number of points for simulation grid, will be automatically updated
+    v_min=v_min,
+    v_max=v_max,
+    v0=v0,
+    e_p=input_power / f_r,
+    t_fwhm=100e-15,  # fwhm for initial Sech pulse, will be overriden by reconstruction
+    min_time_window=min_time_window,
+)
+
 # %% ----- reconstructed pulse from Toptica -----------------------------------
 path = "from_Toptica/"
 recon_s = np.genfromtxt(path + "ReconstructedPulseSpectrum.txt")
@@ -57,24 +76,6 @@ p_v = recon_s[:, 0]
 p_t = recon_t[:, 0] ** 2
 phi_v = recon_s[:, 1]
 phi_t = recon_t[:, 1]
-
-# %% ----- pynlo pulse --------------------------------------------------------
-f_r = 200e6  # repetition rate
-v_min = c / 2e-6  # minimum frequency of grid
-v_max = c / 1e-6  # maximum frequency of grid
-v0 = c / (1550 * nm)  # center frequency (carrier)
-min_time_window = t_grid[-1] - t_grid[0]  # time window
-input_power = 1.7  # Watts
-
-pulse = pynlo.light.Pulse.Sech(
-    n=256,  # number of points for simulation grid, will be automatically updated
-    v_min=v_min,
-    v_max=v_max,
-    v0=v0,
-    e_p=input_power / f_r,
-    t_fwhm=100e-15,  # fwhm for initial Sech pulse, will be overriden by reconstruction
-    min_time_window=min_time_window,
-)
 
 # interpolate reconstructed envelope onto simulation grid
 pulse.import_p_v(v_grid, p_v, phi_v)
@@ -104,7 +105,7 @@ hnlf.load_fiber_from_dict(pynlo.materials.hnlf_5p7)  # sets dispersion and gamma
 iteration = 0
 
 
-def func(X, include_loss=True, return_output=False):
+def func(X, include_loss=False, return_output=False):
     # print iteration number and current fiber lengths
     global iteration
     print(iteration, X)
