@@ -59,28 +59,27 @@ phi_v = recon_s[:, 1]
 phi_t = recon_t[:, 1]
 
 # %% ----- pynlo pulse --------------------------------------------------------
-f_r = 200e6
-n = 256
-v_min = c / 2e-6
-v_max = c / 1e-6
-v0 = c / (1550 * nm)
-t_fwhm = 100e-15
-min_time_window = t_grid[-1] - t_grid[0]
-e_p = 1.7 / f_r
+f_r = 200e6  # repetition rate
+v_min = c / 2e-6  # minimum frequency of grid
+v_max = c / 1e-6  # maximum frequency of grid
+v0 = c / (1550 * nm)  # center frequency (carrier)
+min_time_window = t_grid[-1] - t_grid[0]  # time window
+input_power = 1.7  # Watts
+
 pulse = pynlo.light.Pulse.Sech(
-    n=n,
+    n=256,  # number of points for simulation grid, will be automatically updated
     v_min=v_min,
     v_max=v_max,
     v0=v0,
-    e_p=e_p,
-    t_fwhm=t_fwhm,
+    e_p=input_power / f_r,
+    t_fwhm=100e-15,  # fwhm for initial Sech pulse, will be overriden by reconstruction
     min_time_window=min_time_window,
 )
 
 # interpolate reconstructed envelope onto simulation grid
 pulse.import_p_v(v_grid, p_v, phi_v)
 
-# double check the interpolation -> pass!
+# double check the interpolation
 # fig, ax = plt.subplots(1, 2)
 # ax[0].plot(v_grid / THz, p_v / p_v.max())
 # ax[0].plot(pulse.v_grid / THz, pulse.p_v / pulse.p_v.max())
@@ -95,11 +94,11 @@ pulse.import_p_v(v_grid, p_v, phi_v)
 # %% ----- pm1550 and hnlf ----------------------------------------------------
 gamma_pm1550 = 1.2
 pm1550 = pynlo.materials.SilicaFiber()
-pm1550.load_fiber_from_dict(pynlo.materials.pm1550)
+pm1550.load_fiber_from_dict(pynlo.materials.pm1550)  # sets dispersion and gamma
 pm1550.gamma = gamma_pm1550 / (W * km)
 
 hnlf = pynlo.materials.SilicaFiber()
-hnlf.load_fiber_from_dict(pynlo.materials.hnlf_5p7)
+hnlf.load_fiber_from_dict(pynlo.materials.hnlf_5p7)  # sets dispersion and gamma
 
 # %% ----- maximize the psd at 1450 nm based on length of pm-1550 and hnlf
 iteration = 0
