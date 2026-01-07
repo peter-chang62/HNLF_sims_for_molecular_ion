@@ -105,7 +105,7 @@ hnlf.load_fiber_from_dict(pynlo.materials.hnlf_5p7)  # sets dispersion and gamma
 iteration = 0
 
 
-def func(X, include_loss=False, return_output=False):
+def func(X, include_loss=True, return_output=False):
     # print iteration number and current fiber lengths
     global iteration
     print(iteration, X)
