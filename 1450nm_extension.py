@@ -101,7 +101,7 @@ hnlf_dict = {
 adhnlf.load_fiber_from_dict(pynlo.materials.hnlf_5p7)  # sets dispersion and gamma
 ndhnlf.load_fiber_from_dict(hnlf_dict)  # sets dispersion and gamma
 
-# %% --------------------------------------------------------------------------
+# %% ----- reference osa data -------------------------------------------------
 s = np.genfromtxt("data/W0008.CSV", delimiter=",", skip_header=29)
 v_grid = c / (s[:, 0] * nm)
 s[:, 1] = 10 ** (s[:, 1] / 10)
@@ -112,6 +112,9 @@ pulse_ref.import_p_v(v_grid, s[:, 1] / (v_grid**2 / c))
 ).nonzero()
 
 
+# %% ----- simulation function ------------------------------------------------
+# simulate propagation through pm-1550 -> hnlf with 1 dB splicing loss at given
+# input power, length of pm-1550, and length of hnlf.
 def simulate(power, length_pm1550, length_hnlf, plot=True):
     length_pm1550 *= cm
     length_hnlf *= cm
@@ -125,14 +128,15 @@ def simulate(power, length_pm1550, length_hnlf, plot=True):
     out_adhnlf = propagate(adhnlf, p_pm1550, length_hnlf)
     p_adhnlf = out_adhnlf.sim.pulse_out
 
+    # compare output spectrum to reference spectrum.
+    # account for an overall scale difference by minimizing the rms error with
+    # overall scaling.
     p_ref = pulse_ref.copy()
     p_ref.e_p = p_adhnlf.e_p
     x1 = p_ref.p_v[idx_osa].copy()
     x2 = p_adhnlf.p_v[idx_osa].copy()
     f = lambda s: np.sqrt(np.mean(abs(x1 * s - x2) ** 2))
-
     res = minimize(f, 1, method="Nelder-Mead")
-
     if plot:
         plt.gca().clear()
         plt.plot(x1, "k", linewidth=2)
@@ -142,35 +146,10 @@ def simulate(power, length_pm1550, length_hnlf, plot=True):
     return out_adhnlf, res
 
 
+# %% ----- try matching the osa spectrum by varying input power ---------------
 def func_power(length_pm1550, length_hnlf):
     def f(power):
         print(power)
-        return simulate(
-            power,
-            length_pm1550,
-            length_hnlf,
-            plot=True,
-        )[1].fun
-
-    return f
-
-
-def func_length_pm1550(power, length_hnlf):
-    def f(length_pm1550):
-        print(length_pm1550)
-        return simulate(
-            power,
-            length_pm1550,
-            length_hnlf,
-            plot=True,
-        )[1].fun
-
-    return f
-
-
-def func_length_hnlf(power, length_pm1550):
-    def f(length_hnlf):
-        print(length_hnlf)
         return simulate(
             power,
             length_pm1550,
@@ -185,6 +164,7 @@ res = minimize(func_power(5.5, 2.0), np.array([1.2]), method="Nelder-Mead")
 out, res_scale = simulate(res.x, 5.5, 2.0, True)
 scale = res_scale.x
 
+# %% ----- plotting -----------------------------------------------------------
 p_ref = pulse_ref.copy()
 p_ref.e_p = out.sim.pulse_out.e_p
 fig, ax = plt.subplots(1, 1)
