@@ -39,6 +39,7 @@ um = 1e-6
 nm = 1e-9
 ps = 1e-12
 W = 1.0
+mW = 1e-3
 
 # %% ----- pynlo pulse --------------------------------------------------------
 f_r = 200e6  # repetition rate
@@ -170,12 +171,12 @@ p_ref.e_p = out.sim.pulse_out.e_p
 fig, ax = plt.subplots(1, 1)
 ax.plot(
     pulse.wl_grid[idx_osa] * 1e9,
-    p_ref.p_v[idx_osa] * scale * pulse.v_grid[idx_osa] ** 2 / c,
+    p_ref.p_v[idx_osa] * scale * pulse.v_grid[idx_osa] ** 2 / c * f_r / (mW / nm),
     label="experimental",
 )
 ax.plot(
     pulse.wl_grid[idx_osa] * 1e9,
-    out.sim.pulse_out.p_v[idx_osa] * pulse.v_grid[idx_osa] ** 2 / c,
+    out.sim.pulse_out.p_v[idx_osa] * pulse.v_grid[idx_osa] ** 2 / c * f_r / (mW / nm),
     label="simulated",
 )
 ax.grid(alpha=0.25)
@@ -187,7 +188,7 @@ ax_2.plot(
     label="phase",
 )
 ax.set_xlabel("wavelength (nm)")
-ax.set_ylabel("psd (arb.)")
+ax.set_ylabel("psd (mW/nm)")
 ax_2.set_ylabel("phase (deg.)")
 handles_1, labels_1 = ax.get_legend_handles_labels()
 handles_2, labels_2 = ax_2.get_legend_handles_labels()
