@@ -5,9 +5,9 @@ import clipboard
 from numpy.fft import fft, ifft, fftshift, ifftshift, fftfreq
 import pynlo
 from scipy.constants import c
-from scipy.interpolate import InterpolatedUnivariateSpline
 import collections
 from scipy.optimize import minimize
+from tqdm import tqdm
 
 forward_transform = lambda x, d=1: fftshift(fft(ifftshift(x))) * d
 inverse_transform = lambda x, d=1: fftshift(ifft(ifftshift(x))) / d
@@ -33,25 +33,20 @@ def propagate(fiber, pulse, length, n_records=100):
     return output(model=model, sim=sim)
 
 
-# units
-nm = 1e-9
-um = 1e-6
-uW = 1e-6
-mW = 1e-3
-ps = 1e-12
-fs = 1e-15
 km = 1e3
-THz = 1e12
+cm = 1e-2
+um = 1e-6
+nm = 1e-9
+ps = 1e-12
 W = 1.0
-
 
 # %% ----- pynlo pulse --------------------------------------------------------
 f_r = 200e6  # repetition rate
-v_min = c / 2e-6  # minimum frequency of grid
-v_max = c / 1e-6  # maximum frequency of grid
+v_min = c / (2 * um)  # minimum frequency of grid
+v_max = c / (1 * um)  # maximum frequency of grid
 v0 = c / (1550 * nm)  # center frequency (carrier)
 min_time_window = 10e-12  # 10 pstime window
-input_power = 1.7  # Watts
+input_power = 1.2  # Watts
 
 pulse = pynlo.light.Pulse.Sech(
     n=256,  # number of points for simulation grid, will be automatically updated
@@ -64,33 +59,28 @@ pulse = pynlo.light.Pulse.Sech(
 )
 
 # %% ----- reconstructed pulse from Toptica -----------------------------------
-path = "from_Toptica/"
-recon_s = np.genfromtxt(path + "ReconstructedPulseSpectrum.txt")
-recon_t = np.genfromtxt(path + "ReconstructedPulseTemporal.txt")
+# data is structured as time/wavelength, intensity, phase
+# the spectrum reconstruction is linearly spaced in frequency, not wavelength,
+# although the axis is given in wavelength
 
-t_grid = recon_t[:, 2] * fs
-wl_grid = recon_s[:, 2] * um
+recon_s = np.genfromtxt(
+    "from_Toptica/correct_frequency_reconstruction.txt", skip_header=1
+)
+recon_t = np.genfromtxt(
+    "from_Toptica/correct_temporal_reconstruction.txt", skip_header=1
+)
+
+wl_grid = recon_s[:, 0] * nm
 v_grid = c / wl_grid
+p_wl = recon_s[:, 1]
+p_v = p_wl / (v_grid**2 / c)
+phi_v = recon_s[:, 2]
 
-p_v = recon_s[:, 0]
-p_t = recon_t[:, 0] ** 2
-phi_v = recon_s[:, 1]
-phi_t = recon_t[:, 1]
+t_grid = recon_t[:, 0] * 1e-12
+p_t = recon_t[:, 1]
+phi_t = recon_t[:, 2]
 
-# interpolate reconstructed envelope onto simulation grid
-pulse.import_p_v(v_grid, p_v, phi_v)
-
-# double check the interpolation
-# fig, ax = plt.subplots(1, 2)
-# ax[0].plot(v_grid / THz, p_v / p_v.max())
-# ax[0].plot(pulse.v_grid / THz, pulse.p_v / pulse.p_v.max())
-# ax[0].set_xlabel("THz")
-# ax[0].set_ylabel("arb.")
-# ax[1].plot(t_grid / ps, p_t / p_t.max())
-# ax[1].plot(pulse.t_grid / ps, pulse.p_t / pulse.p_t.max())
-# ax[1].set_xlabel("time (ps)")
-# ax[1].set_ylabel("arb.")
-# fig.tight_layout()
+pulse.import_p_v(v_grid, p_v, -phi_v)  # interoplate reconstruction onto pulse grid
 
 # %% ----- pm1550 and hnlf ----------------------------------------------------
 gamma_pm1550 = 1.2
@@ -98,61 +88,130 @@ pm1550 = pynlo.materials.SilicaFiber()
 pm1550.load_fiber_from_dict(pynlo.materials.pm1550)  # sets dispersion and gamma
 pm1550.gamma = gamma_pm1550 / (W * km)
 
-hnlf = pynlo.materials.SilicaFiber()
-hnlf.load_fiber_from_dict(pynlo.materials.hnlf_5p7)  # sets dispersion and gamma
-
-# %% ----- maximize the psd at 1450 nm based on length of pm-1550 and hnlf
-iteration = 0
-
-
-def func(X, include_loss=True, return_output=False):
-    # print iteration number and current fiber lengths
-    global iteration
-    print(iteration, X)
-    iteration += 1
-
-    # option to include fiber coupling loss
-    p_in = pulse.copy()
-    if include_loss:
-        p_in.e_p *= 0.7  # 70% coupling efficiency into the fiber patch cable?
-
-    # pm-1550 sim
-    length_pm1550, length_hnlf = X * 1e-2
-    output_pm1550 = propagate(pm1550, p_in, length_pm1550)
-    sim_pm1550 = output_pm1550.sim
-
-    # option to include splicing loss from PM-1550 -> HNLF
-    p_in = sim_pm1550.pulse_out.copy()
-    if include_loss:
-        p_in.e_p *= 10 ** (-1 / 10)  # ~1 dB splicing loss between PM-1550 and HNLF
-
-    # hnlf sim
-    output_hnlf = propagate(hnlf, p_in, length_hnlf)
-    sim_hnlf = output_hnlf.sim
-
-    # get the psd (J/Hz) at 1450 nm
-    p_v = sim_hnlf.pulse_out.p_v
-    idx = abs(pulse.wl_grid - 1450e-9).argmin()
-    psd = p_v[idx]
-
-    if return_output:
-        return output_pm1550, output_hnlf
-    else:
-        return -psd
-
-
-res = minimize(fun=func, x0=np.array([5.5, 2]), method="Nelder-Mead")
-output_pm1550, output_hnlf = func(res.x, return_output=True)
+adhnlf = pynlo.materials.SilicaFiber()
+ndhnlf = pynlo.materials.SilicaFiber()
+hnlf_dict = {
+    "D slow axis": -2.2 * ps / (nm * km),
+    "D slope slow axis": 0.026 * ps / (nm**2 * km),
+    "D fast axis": 1.0 * ps / (nm * km),
+    "D slope fast axis": 0.024 * ps / (nm**2 * km),
+    "nonlinear coefficient": 10.5 / (W * km),
+    "center wavelength": 1550 * nm,
+}
+adhnlf.load_fiber_from_dict(pynlo.materials.hnlf_5p7)  # sets dispersion and gamma
+ndhnlf.load_fiber_from_dict(hnlf_dict)  # sets dispersion and gamma
 
 # %% --------------------------------------------------------------------------
+s = np.genfromtxt("data/W0008.CSV", delimiter=",", skip_header=29)
+v_grid = c / (s[:, 0] * nm)
+s[:, 1] = 10 ** (s[:, 1] / 10)
+pulse_ref = pulse.copy()
+pulse_ref.import_p_v(v_grid, s[:, 1] / (v_grid**2 / c))
+(idx_osa,) = np.logical_and(
+    v_grid.min() < pulse.v_grid, pulse.v_grid < v_grid.max()
+).nonzero()
+
+
+def simulate(power, length_pm1550, length_hnlf, plot=True):
+    length_pm1550 *= cm
+    length_hnlf *= cm
+    p_in = pulse.copy()
+    p_in.e_p = power / f_r
+
+    out_pm1550 = propagate(pm1550, p_in, length_pm1550)
+    p_pm1550 = out_pm1550.sim.pulse_out
+    p_pm1550.e_p *= 10 ** (-1 / 10)  # 1 dB splicing loss
+
+    out_adhnlf = propagate(adhnlf, p_pm1550, length_hnlf)
+    p_adhnlf = out_adhnlf.sim.pulse_out
+
+    p_ref = pulse_ref.copy()
+    p_ref.e_p = p_adhnlf.e_p
+    x1 = p_ref.p_v[idx_osa].copy()
+    x2 = p_adhnlf.p_v[idx_osa].copy()
+    f = lambda s: np.sqrt(np.mean(abs(x1 * s - x2) ** 2))
+
+    res = minimize(f, 1, method="Nelder-Mead")
+
+    if plot:
+        plt.gca().clear()
+        plt.plot(x1, "k", linewidth=2)
+        plt.plot(x2)
+        plt.pause(0.01)
+
+    return out_adhnlf, res
+
+
+def func_power(length_pm1550, length_hnlf):
+    def f(power):
+        print(power)
+        return simulate(
+            power,
+            length_pm1550,
+            length_hnlf,
+            plot=True,
+        )[1].fun
+
+    return f
+
+
+def func_length_pm1550(power, length_hnlf):
+    def f(length_pm1550):
+        print(length_pm1550)
+        return simulate(
+            power,
+            length_pm1550,
+            length_hnlf,
+            plot=True,
+        )[1].fun
+
+    return f
+
+
+def func_length_hnlf(power, length_pm1550):
+    def f(length_hnlf):
+        print(length_hnlf)
+        return simulate(
+            power,
+            length_pm1550,
+            length_hnlf,
+            plot=True,
+        )[1].fun
+
+    return f
+
+
+res = minimize(func_power(5.5, 2.0), np.array([1.2]), method="Nelder-Mead")
+out, res_scale = simulate(res.x, 5.5, 2.0, True)
+scale = res_scale.x
+
+p_ref = pulse_ref.copy()
+p_ref.e_p = out.sim.pulse_out.e_p
 fig, ax = plt.subplots(1, 1)
-p_v = output_hnlf.sim.pulse_out.p_v
-dv_dl = pulse.v_grid**2 / c
-ax.plot(pulse.wl_grid / um, p_v * dv_dl * f_r / (mW / nm))
-phi_v = np.unwrap(np.angle(output_hnlf.sim.pulse_out.a_v))
+ax.plot(
+    pulse.wl_grid[idx_osa] * 1e9,
+    p_ref.p_v[idx_osa] * scale * pulse.v_grid[idx_osa] ** 2 / c,
+    label="experimental",
+)
+ax.plot(
+    pulse.wl_grid[idx_osa] * 1e9,
+    out.sim.pulse_out.p_v[idx_osa] * pulse.v_grid[idx_osa] ** 2 / c,
+    label="simulated",
+)
+ax.grid(alpha=0.25)
 ax_2 = ax.twinx()
-ax_2.plot(pulse.wl_grid / um, phi_v * 180 / np.pi, "C1")
-ax.set_xlabel("wavelength ($\\mu m$)")
-ax.set_ylabel("PSD (mW/nm)")
-ax_2.set_ylabel("spectral phase (deg.)")
+ax_2.plot(
+    pulse.wl_grid[idx_osa] * 1e9,
+    np.unwrap(out.sim.pulse_out.phi_v[idx_osa]) * 180 / np.pi,
+    "C3",
+    label="phase",
+)
+ax.set_xlabel("wavelength (nm)")
+ax.set_ylabel("psd (arb.)")
+ax_2.set_ylabel("phase (deg.)")
+handles_1, labels_1 = ax.get_legend_handles_labels()
+handles_2, labels_2 = ax_2.get_legend_handles_labels()
+handles = handles_1 + handles_2
+labels = labels_1 + labels_2
+ax.legend(loc="best", handles=handles, labels=labels)
 fig.tight_layout()
